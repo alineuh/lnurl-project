@@ -1,67 +1,110 @@
 use axum::{
-    Json, Router,
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::get,
+    Json, Router,
 };
 use cln_rpc::{
-    ClnRpc,
+    model::{requests as creq, responses as cresp},
     primitives::{Amount, AmountOrAll, PublicKey},
-    model::{responses as cresp, requests as creq},
+    ClnRpc,
 };
-
-use std::{str::FromStr, sync::Arc};
+use rand::Rng;
+use std::{
+    collections::HashMap,
+    str::FromStr,
+    sync::Arc,
+};
 use tokio::sync::Mutex;
-use server_lightning::RequestChannelResponse;
-use server_lightning::OpenChannelRequest;
-use server_lightning::OpenChannelResponse;
-use server_lightning::WithdrawRequestChannelResponse;
+use tracing::info;
+
+use lnurl_project::*;
+
+const PUBLIC_KEY: &str = "029249978ef61cf264d2cf57589c96780bdd86266fdc065d6b54c48d2c9ea3ad40";
+const IP_PORT: &str = "89.87.30.156:9735"; 
+const SERVER_URL: &str = "http://89.87.30.156:3000"; //server URL
 
 
-/* static TPCCLIENT: OnceLock<Arc<Mutex<ClnRpc>>> = OnceLock::new();
- */
-const REQUESTCHANELTAG: &str = "request-channel";
-const PUBLIC_KEY: &str = "021f9b61b38536de1476d37ae75f037717b3aa4223081c2ee9eda51edd14147c16";
-const IP_PORT: &str = "192.168.27.67:9735";
-const CALLBACK_IP: &str = "192.168.27.67:3000";
-
-const CALLBACK_IP2: &str = "192.168.27.67:3001";
 
 #[derive(Clone)]
 struct AppState {
     client_rpc: Arc<Mutex<ClnRpc>>,
+    k1_cache: Arc<Mutex<HashMap<String, K1Data>>>,
+}
+
+#[derive(Clone, Debug)]
+struct K1Data {
+    challenge: String,
+    used: bool,
 }
 
 
-// --------------------  HANDLERS --------------------
-async fn channel_request() -> (StatusCode, Json<RequestChannelResponse>) {
-    let response = RequestChannelResponse {
+fn generate_k1() -> String {
+    let mut rng = rand::thread_rng();
+    let random_bytes: [u8; 32] = rng.gen();
+    hex::encode(random_bytes)
+}
+
+
+/// GET /channel-request
+/// Retourne les infos pour qu'un client puisse demander l'ouverture d'un channel
+async fn channel_request(State(state): State<AppState>) -> (StatusCode, Json<ChannelRequestResponse>) {
+    let k1 = generate_k1();
+    
+    // Store k1 in cache
+    {
+        let mut cache = state.k1_cache.lock().await;
+        cache.insert(k1.clone(), K1Data {
+            challenge: k1.clone(),
+            used: false,
+        });
+    }
+
+    let response = ChannelRequestResponse {
+        tag: CHANNEL_REQUEST_TAG.to_string(),
+        k1: k1.clone(),
+        callback: format!("{}/channel-callback", SERVER_URL),
         uri: format!("{}@{}", PUBLIC_KEY, IP_PORT),
-        callback: format!("{}", CALLBACK_IP),
-        k1: "help".to_string(),
-        tag: REQUESTCHANELTAG.to_string(),
     };
 
+    info!("Channel request generated with k1: {}", k1);
     (StatusCode::OK, Json(response))
 }
 
-// Open channel from remote node to local one
-// Communicate the remote server side to lightning network server side
-async fn open_channel(
+async fn channel_callback(
     State(state): State<AppState>,
-    Json(body): Json<OpenChannelRequest>,
+    Query(params): Query<OpenChannelRequest>,
 ) -> Result<Json<OpenChannelResponse>, StatusCode> {
-    let _remote_uri = format!("{}@{}:{}", body.node_id, body.host, body.port);
+    info!("Channel callback received: k1={}, remoteid={}", params.k1, params.remote_id);
 
-    // Parse node_id safely into a PublicKey
-    let node_id_pub_key =
-        PublicKey::from_str(&body.node_id).map_err(|_| StatusCode::BAD_REQUEST)?; // 400 if invalid pubkey
+    // Verify k1
+    {
+        let mut cache = state.k1_cache.lock().await;
+        match cache.get_mut(&params.k1) {
+            Some(data) if !data.used => {
+                data.used = true;
+            }
+            Some(_) => {
+                info!("k1 already used");
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            None => {
+                info!("k1 not found in cache");
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
+    }
 
+    // Parse node_id
+    let node_id = PublicKey::from_str(&params.remote_id)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    // Open channel via Core Lightning
     let req = creq::FundchannelRequest {
-        id: node_id_pub_key,
-        amount: AmountOrAll::Amount(Amount::from_sat(body.satoshis)),
+        id: node_id,
+        amount: AmountOrAll::Amount(Amount::from_sat(100_000)), // 100k sats par défaut
         feerate: None,
-        announce: None, // default to true if None
+        announce: Some(params.private != "1"), // private=1 means private channel
         channel_type: None,
         minconf: None,
         utxos: None,
@@ -73,76 +116,251 @@ async fn open_channel(
         mindepth: None,
     };
 
-    let resp: cresp::FundchannelResponse = {
-        // lock the mutex and map a poisoned lock to a 500 error
+    let _resp: cresp::FundchannelResponse = {
         let mut guard = state.client_rpc.lock().await;
-
         guard
             .call_typed(&req)
             .await
-            .map_err(|_e| StatusCode::BAD_GATEWAY)? // same here
+            .map_err(|e| {
+                info!("Failed to fund channel: {:?}", e);
+                StatusCode::BAD_GATEWAY
+            })?
     };
 
-    // Map CLN response -> your API response
-    let api_resp = OpenChannelResponse {
-        mindepth: resp.mindepth,
-        channel_id: resp.channel_id,
-        outnum: resp.outnum,
-        tx: resp.tx,
-        txid: resp.txid,
-    };
-
-    Ok(Json(api_resp))
+    info!("Channel opened successfully!");
+    Ok(Json(OpenChannelResponse {
+        status: "OK".to_string(),
+    }))
 }
 
-/* async fn withdraw_request() -> (StatusCode, Json<WithdrawRequestChannelResponse>) {
-    let crr = WithdrawRequestChannelResponse {
-        callback: format!("{}", CALLBACK_IP2),
-        k1: "idk2".to_string(),
-        tag: REQUESTCHANELTAG.to_string(),
-        default_description: "Default withdraw configuration".to_string(),
-        min_withdrawable: 1000,
-        max_withdrawable: 1000000,
+/// GET /withdraw-request
+/// Retourne les infos pour qu'un client puisse demander un withdraw
+async fn withdraw_request(State(state): State<AppState>) -> (StatusCode, Json<WithdrawRequestResponse>) {
+    let k1 = generate_k1();
+    
+    // Store k1 in cache
+    {
+        let mut cache = state.k1_cache.lock().await;
+        cache.insert(k1.clone(), K1Data {
+            challenge: k1.clone(),
+            used: false,
+        });
+    }
+
+    let response = WithdrawRequestResponse {
+        tag: WITHDRAW_REQUEST_TAG.to_string(),
+        callback: format!("{}/withdraw-callback", SERVER_URL),
+        k1: k1.clone(),
+        default_description: "LNURL withdraw".to_string(),
+        min_withdrawable: 1_000, // 1 sat minimum (in millisats)
+        max_withdrawable: 1_000_000, // 1000 sats maximum (in millisats)
     };
 
-    (StatusCode::OK, Json(crr))
+    info!("Withdraw request generated with k1: {}", k1);
+    (StatusCode::OK, Json(response))
 }
- */
-/* async fn withdraw() -> () {
-    todo!("Complete")
-} */
-// --------------------  MAIN --------------------
+
+/// GET /withdraw-callback?k1=...&pr=...
+/// Callback appelé par le client pour effectivement effectuer le withdraw
+async fn withdraw_callback(
+    State(state): State<AppState>,
+    Query(params): Query<WithdrawRequest>,
+) -> Result<Json<WithdrawResponse>, StatusCode> {
+    info!("Withdraw callback received: k1={}", params.k1);
+
+    // Verify k1
+    {
+        let mut cache = state.k1_cache.lock().await;
+        match cache.get_mut(&params.k1) {
+            Some(data) if !data.used => {
+                data.used = true;
+            }
+            Some(_) => {
+                info!("k1 already used");
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            None => {
+                info!("k1 not found in cache");
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
+    }
+
+    // Pay the invoice via Core Lightning
+    let req = creq::PayRequest {
+        bolt11: params.pr.clone(),
+        amount_msat: None,
+        label: None,
+        riskfactor: None,
+        maxfeepercent: None,
+        retry_for: None,
+        maxdelay: None,
+        exemptfee: None,
+        localinvreqid: None,
+        exclude: None,
+        maxfee: None,
+        description: None,
+        partial_msat: None,
+    };
+
+    let _resp: cresp::PayResponse = {
+        let mut guard = state.client_rpc.lock().await;
+        guard
+            .call_typed(&req)
+            .await
+            .map_err(|e| {
+                info!("Failed to pay invoice: {:?}", e);
+                StatusCode::BAD_GATEWAY
+            })?
+    };
+
+    info!("Withdraw successful!");
+    Ok(Json(WithdrawResponse {
+        status: "OK".to_string(),
+    }))
+}
+
+// ============================================================================
+// LUD-04: LNURL-auth Handlers
+// ============================================================================
+
+/// GET /auth-challenge
+/// Retourne un challenge k1 pour l'authentification
+async fn auth_challenge(State(state): State<AppState>) -> (StatusCode, Json<AuthChallengeResponse>) {
+    let k1 = generate_k1();
+    
+    // Store k1 in cache
+    {
+        let mut cache = state.k1_cache.lock().await;
+        cache.insert(k1.clone(), K1Data {
+            challenge: k1.clone(),
+            used: false,
+        });
+    }
+
+    let response = AuthChallengeResponse {
+        tag: AUTH_TAG.to_string(),
+        k1: k1.clone(),
+        action: Some("login".to_string()),
+    };
+
+    info!("Auth challenge generated with k1: {}", k1);
+    (StatusCode::OK, Json(response))
+}
+
+/// GET /auth-response?k1=...&sig=...&key=...
+/// Vérifie la signature et authentifie l'utilisateur
+async fn auth_response(
+    State(state): State<AppState>,
+    Query(params): Query<AuthRequest>,
+) -> Result<Json<AuthResponse>, StatusCode> {
+    info!("Auth response received: k1={}, key={}", params.k1, params.key);
+
+    // Verify k1 exists and is not used
+    {
+        let mut cache = state.k1_cache.lock().await;
+        match cache.get_mut(&params.k1) {
+            Some(data) if !data.used => {
+                data.used = true;
+            }
+            Some(_) => {
+                info!("k1 already used");
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            None => {
+                info!("k1 not found in cache");
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
+    }
+
+    // Parse the public key
+    let pubkey = PublicKey::from_str(&params.key)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    // Verify signature using Core Lightning's checkmessage
+    let req = creq::CheckmessageRequest {
+        message: params.k1.clone(),
+        zbase: params.sig.clone(),
+        pubkey: Some(pubkey),
+    };
+
+    let resp: cresp::CheckmessageResponse = {
+        let mut guard = state.client_rpc.lock().await;
+        guard
+            .call_typed(&req)
+            .await
+            .map_err(|e| {
+                info!("Failed to verify signature: {:?}", e);
+                StatusCode::UNAUTHORIZED
+            })?
+    };
+
+    if !resp.verified {
+        info!("Signature verification failed");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    info!("Auth successful for key: {}", params.key);
+    
+    Ok(Json(AuthResponse {
+        status: "OK".to_string(),
+        event: Some("LOGGEDIN".to_string()),
+    }))
+}
+ 
+
+//main 
+
 #[tokio::main]
 async fn main() {
-    // initialize tracing
+    // Initialize tracing
     tracing_subscriber::fmt::init();
 
+    // Connect to Core Lightning
     let home = std::env::var("HOME").expect("HOME env var not set");
     let rpc_path = format!("{home}/.lightning/testnet4/lightning-rpc");
 
     let client = ClnRpc::new(&rpc_path).await;
     if let Err(e) = &client {
-        eprintln!("ERROR DEFINING THE CLIENT: {e}");
+        eprintln!("ERROR connecting to Core Lightning: {e}");
+        eprintln!("Make sure lightningd is running on testnet4!");
         std::process::exit(1);
     }
 
-    /*     let shared_state = Arc::new(AppState {
-        client_rpc: client.unwrap()
-    }); */
-
     let shared_state = AppState {
-        client_rpc: Arc::new(Mutex::new(client.unwrap())), // Todo: handle the result
+        client_rpc: Arc::new(Mutex::new(client.unwrap())),
+        k1_cache: Arc::new(Mutex::new(HashMap::new())),
     };
 
-    // build our application with a route
+    // Build router
     let app = Router::new()
-        .route("/channel_request", get(channel_request)) // could be run in different place than open-channel
-        .route("/open_channel", post(open_channel)) // Return a status code instead
+        // LUD-02: Channel Request
+        .route("/channel-request", get(channel_request))
+        .route("/channel-callback", get(channel_callback))
+        // LUD-03: Withdraw Request
+        .route("/withdraw-request", get(withdraw_request))
+        .route("/withdraw-callback", get(withdraw_callback))
+        // LUD-04: LNURL-auth
+        .route("/auth-challenge", get(auth_challenge))
+        .route("/auth-response", get(auth_response))
         .with_state(shared_state);
-        /* .route("/withdraw_request", get(withdraw_request))
-        .route("/withdraw", get(withdraw)); */
 
-    // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    // Run server
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+        .await
+        .expect("Failed to bind to port 3000");
+
+    info!("🚀 Server running on http://0.0.0.0:3000");
+    info!("📡 Endpoints:");
+    info!("  - GET  /channel-request");
+    info!("  - GET  /channel-callback");
+    info!("  - GET  /withdraw-request");
+    info!("  - GET  /withdraw-callback");
+    info!("  - GET  /auth-challenge");
+    info!("  - GET  /auth-response");
+
+    axum::serve(listener, app)
+        .await
+        .expect("Server failed");
 }
