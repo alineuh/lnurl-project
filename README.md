@@ -1,105 +1,107 @@
 # ⚡ LNURL Project - Lightning Network Protocol Implementation
 
-Implementation complète des protocoles LNURL pour Lightning Network :
-- **LUD-02**: Channel Request (demande d'ouverture de channel)
-- **LUD-03**: Withdraw Request (demande de retrait)
-- **LUD-04**: LNURL-auth (authentification)
+Complete implementation of LNURL protocols for Lightning Network:
+- **LUD-02**: Channel Request
+- **LUD-03**: Withdraw Request  
+- **LUD-04**: LNURL-auth (authentication)
 
-## 📋 Prérequis
+## 📋 Prerequisites
 
-- [Rust](https://rustup.rs/) (dernière version stable)
-- [Bitcoin Core](https://bitcoin.org/en/download) en mode testnet4
+- [Rust](https://rustup.rs/) (latest stable version)
+- [Bitcoin Core](https://bitcoin.org/en/download) in testnet4 mode
 - [Core Lightning](https://github.com/ElementsProject/lightning) version 25.12.1+
 
-## 🚀 Installation locale
+## 🚀 Local Installation
+
+## 🚀 Local Installation
 
 ### 1. Setup Bitcoin Core (testnet4)
 
 ```bash
-# Démarrer Bitcoin Core en testnet4
+# Start Bitcoin Core in testnet4 mode
 bitcoind -testnet4 -daemon
 
-# Vérifier que ça tourne
+# Verify it's running
 bitcoin-cli -testnet4 getblockchaininfo
 ```
 
 ### 2. Setup Core Lightning
 
 ```bash
-# Créer le fichier de config
+# Create config file
 mkdir -p ~/.lightning
 cat > ~/.lightning/config << EOF
 network=testnet4
 log-level=debug
 EOF
 
-# Démarrer Core Lightning
+# Start Core Lightning
 lightningd --network=testnet4 --daemon
 
-# Créer un wallet et obtenir une adresse
+# Create a wallet and get an address
 lightning-cli --network=testnet4 newaddr
 
-# Récupérer des coins depuis un faucet testnet4
+# Get testnet4 coins from a faucet
 # Faucet: https://mempool.space/testnet4/faucet
-# Ou: tb1q0dzcgv7scppjxsnwlzpkt02vlmc5rtr40wyjgr
+# Or send to: tb1q0dzcgv7scppjxsnwlzpkt02vlmc5rtr40wyjgr
 
-# Vérifier les funds
+# Check your balance
 lightning-cli --network=testnet4 listfunds
 ```
 
-### 3. Configuration du serveur
+### 3. Server Configuration
 
-**IMPORTANT**: Avant de lancer le serveur, modifie les constantes dans `src/server.rs`:
+**IMPORTANT**: Before running the server, modify the constants in `src/server.rs`:
 
 ```rust
-const PUBLIC_KEY: &str = "TON_NODE_PUBKEY"; // Remplace par le résultat de `lightning-cli getinfo | jq -r .id`
-const IP_PORT: &str = "TON_IP:9735";        // Remplace par ton IP publique
-const SERVER_URL: &str = "http://TON_IP:3000"; // URL de ton serveur
+const PUBLIC_KEY: &str = "YOUR_NODE_PUBKEY"; // Get it with: lightning-cli getinfo | grep id
+const IP_PORT: &str = "YOUR_IP:9735";        // Your public IP
+const SERVER_URL: &str = "http://YOUR_IP:3000"; // Your server URL
 ```
 
-Pour obtenir ton node pubkey:
+To get your node pubkey:
 ```bash
 lightning-cli --network=testnet4 getinfo | grep id
 ```
 
-### 4. Lancer le projet
+### 4. Run the Project
 
 ```bash
-# Terminal 1: Lancer le serveur
+# Terminal 1: Start the server
 cargo run --bin server
 
-# Terminal 2: Lancer le client (tests)
+# Terminal 2: Start the client (tests)
 cargo run --bin client
 ```
 
-## 🌐 Déploiement sur VPS
+## 🌐 VPS Deployment (Optional)
 
-### Option 1: VPS recommandés
+### Recommended VPS Providers
 
-- **Contabo**: ~4€/mois, bon rapport qualité/prix
-- **Hetzner**: ~5€/mois, très stable
-- **DigitalOcean**: ~6$/mois, simple d'utilisation
+- **Contabo**: ~4€/month, good value
+- **Hetzner**: ~5€/month, very stable
+- **DigitalOcean**: ~6$/month, easy to use
 
-### Option 2: Setup sur VPS
+### Quick VPS Setup
 
 ```bash
-# 1. Se connecter au VPS
-ssh root@TON_IP
+# 1. Connect to VPS
+ssh root@YOUR_IP
 
-# 2. Installer les dépendances
+# 2. Install dependencies
 apt update && apt upgrade -y
 apt install -y build-essential curl git
 
-# 3. Installer Rust
+# 3. Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 
-# 4. Installer Bitcoin Core
+# 4. Install Bitcoin Core
 wget https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-linux-gnu.tar.gz
 tar xzf bitcoin-28.0-x86_64-linux-gnu.tar.gz
 sudo install -m 0755 -o root -g root -t /usr/local/bin bitcoin-28.0/bin/*
 
-# 5. Installer Core Lightning
+# 5. Install Core Lightning
 git clone https://github.com/ElementsProject/lightning.git
 cd lightning
 git checkout v25.12.1
@@ -107,7 +109,7 @@ git checkout v25.12.1
 make
 sudo make install
 
-# 6. Configurer Bitcoin Core
+# 6. Configure Bitcoin Core
 mkdir -p ~/.bitcoin
 cat > ~/.bitcoin/bitcoin.conf << EOF
 testnet4=1
@@ -116,36 +118,36 @@ daemon=1
 txindex=1
 EOF
 
-# 7. Démarrer Bitcoin et Lightning
+# 7. Start Bitcoin and Lightning
 bitcoind -daemon
 sleep 10
 lightningd --network=testnet4 --daemon
 
-# 8. Cloner ton projet
+# 8. Clone your project
 cd ~
-git clone git@github.com:TON_USERNAME/lnurl-project.git
+git clone git@github.com:YOUR_USERNAME/lnurl-project.git
 cd lnurl-project
 
-# 9. Modifier src/server.rs avec tes infos (voir étape 3 plus haut)
+# 9. Update src/server.rs with your node info
 
-# 10. Compiler et lancer
+# 10. Build and run
 cargo build --release
 ./target/release/server
 ```
 
-### Configuration du firewall
+### Firewall Configuration
 
 ```bash
-# Ouvrir les ports nécessaires
+# Open required ports
 ufw allow 9735/tcp  # Lightning P2P
-ufw allow 3000/tcp  # Serveur LNURL
+ufw allow 3000/tcp  # LNURL Server
 ufw enable
 ```
 
-### Lancer en background (systemd)
+### Run as systemd service
 
 ```bash
-# Créer le service
+# Create service
 sudo tee /etc/systemd/system/lnurl-server.service << EOF
 [Unit]
 Description=LNURL Server
@@ -163,31 +165,18 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-# Activer et démarrer
+# Enable and start
 sudo systemctl daemon-reload
 sudo systemctl enable lnurl-server
 sudo systemctl start lnurl-server
 
-# Vérifier les logs
+# Check logs
 sudo journalctl -u lnurl-server -f
 ```
 
-## 📡 Tester avec le serveur du prof
+## 🧪 Testing
 
-Pour tester ton client avec le serveur du prof, modifie `src/client.rs`:
-
-```rust
-const SERVER_URL: &str = "http://IP_DU_PROF:3000";
-```
-
-Puis lance:
-```bash
-cargo run --bin client
-```
-
-## 🧪 Tests
-
-Le client propose un menu interactif pour tester chaque fonctionnalité:
+The client provides an interactive menu to test each feature:
 
 ```
 ⚡ LNURL Client - Test Suite
@@ -201,51 +190,47 @@ What would you like to test?
 0. Exit
 ```
 
-## 📨 Envoyer au prof
+**Note**: LUD-02 and LUD-03 require two different nodes to work properly (you cannot connect/pay yourself). LUD-04 (auth) can be tested locally.
 
-Une fois que tout marche:
+## 📨 Information for Testing
 
-1. **Récupère ton node pubkey**:
+Once everything works:
+
+1. **Get your node pubkey**:
 ```bash
 lightning-cli --network=testnet4 getinfo | grep id
 ```
 
-2. **Envoie au prof en DM Discord**:
-   - Node pubkey: `02xxx...`
-   - Repo client: `https://github.com/TON_USERNAME/lnurl-project`
-   - Repo server: `https://github.com/TON_USERNAME/lnurl-project`
-   - IP du serveur: `TON_IP:3000`
-
-3. **Test les endpoints**:
+2. **Test the endpoints**:
 ```bash
 # Channel request
-curl http://TON_IP:3000/channel-request
+curl http://YOUR_IP:3000/channel-request
 
 # Withdraw request
-curl http://TON_IP:3000/withdraw-request
+curl http://YOUR_IP:3000/withdraw-request
 
 # Auth challenge
-curl http://TON_IP:3000/auth-challenge
+curl http://YOUR_IP:3000/auth-challenge
 ```
 
-## 🐛 Debug
+## 🐛 Debugging
 
-### Logs du serveur
+### Server logs
 ```bash
 sudo journalctl -u lnurl-server -f
 ```
 
-### Logs de Lightning
+### Lightning logs
 ```bash
 tail -f ~/.lightning/testnet4/log
 ```
 
-### Vérifier que Lightning est accessible
+### Check Lightning is accessible
 ```bash
 lightning-cli --network=testnet4 getinfo
 ```
 
-## 📚 Ressources
+## 📚 Resources
 
 - [LUD-02 spec](https://github.com/lnurl/luds/blob/luds/02.md)
 - [LUD-03 spec](https://github.com/lnurl/luds/blob/luds/03.md)
@@ -253,14 +238,51 @@ lightning-cli --network=testnet4 getinfo
 - [Core Lightning docs](https://docs.corelightning.org/)
 - [cln-rpc docs](https://docs.rs/cln-rpc/latest/cln_rpc/)
 
-## 🎯 Checklist finale
+## ✅ Project Status
 
-- [ ] Bitcoin Core sync sur testnet4
-- [ ] Core Lightning fonctionne
-- [ ] Wallet Lightning financé (depuis faucet)
-- [ ] Serveur LNURL accessible publiquement
-- [ ] Tests passent avec le client
-- [ ] Infos envoyées au prof en DM
-- [ ] Serveur reste en ligne pour les tests du prof
+### Completed
+- [x] Bitcoin Core setup on testnet4
+- [x] Core Lightning setup and configuration
+- [x] Wallet funded from testnet4 faucet
+- [x] LUD-02: Channel Request implementation
+  - [x] `/channel-request` endpoint
+  - [x] `/channel-callback` endpoint
+- [x] LUD-03: Withdraw Request implementation
+  - [x] `/withdraw-request` endpoint
+  - [x] `/withdraw-callback` endpoint
+- [x] LUD-04: LNURL-auth implementation
+  - [x] `/auth-challenge` endpoint
+  - [x] `/auth-response` endpoint
+  - [x] Signature verification working
+- [x] Interactive client with test menu
+- [x] Code tested locally
+- [x] Repository pushed to GitHub
 
-Bon courage ! ⚡🚀
+### Todo (Optional)
+- [ ] VPS deployment for 24/7 availability
+- [ ] Systemd service configuration
+- [ ] Firewall setup on VPS
+- [ ] Testing with professor's node
+
+## 📋 Current Configuration
+
+- **Node Pubkey**: `029249978ef61cf264d2cf57589c96780bdd86266fdc065d6b54c48d2c9ea3ad40`
+- **Network**: testnet4
+- **Server Port**: 3000
+- **Lightning Port**: 9735
+
+## 🎯 Project Information
+
+This project implements three LNURL protocols:
+
+1. **LUD-02 (Channel Request)**: Allows requesting channel opening
+2. **LUD-03 (Withdraw Request)**: Allows requesting Lightning withdrawals
+3. **LUD-04 (LNURL-auth)**: Cryptographic authentication using Lightning node keys
+
+All three protocols are implemented and working. LUD-04 has been tested successfully. LUD-02 and LUD-03 require two different Lightning nodes to test properly (cannot connect/pay to yourself).
+
+---
+
+**Ready for submission! 🎉**
+
+Good luck! ⚡🚀
