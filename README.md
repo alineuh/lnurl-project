@@ -1,19 +1,19 @@
-# ⚡ LNURL Project - Lightning Network Protocol Implementation
+# LNURL Project - Lightning Network Protocol Implementation
 
 Complete implementation of LNURL protocols for Lightning Network:
 - **LUD-02**: Channel Request
 - **LUD-03**: Withdraw Request  
 - **LUD-04**: LNURL-auth (authentication)
 
-## 📋 Prerequisites
+## Prerequisites
 
 - [Rust](https://rustup.rs/) (latest stable version)
 - [Bitcoin Core](https://bitcoin.org/en/download) in testnet4 mode
 - [Core Lightning](https://github.com/ElementsProject/lightning) version 25.12.1+
 
-## 🚀 Local Installation
+##  Local Installation
 
-## 🚀 Local Installation
+##  Local Installation
 
 ### 1. Setup Bitcoin Core (testnet4)
 
@@ -74,7 +74,7 @@ cargo run --bin server
 cargo run --bin client
 ```
 
-## 🌐 VPS Deployment (Optional)
+## VPS Deployment (Optional)
 
 ### Recommended VPS Providers
 
@@ -174,7 +174,7 @@ sudo systemctl start lnurl-server
 sudo journalctl -u lnurl-server -f
 ```
 
-## 🧪 Testing
+## Testing
 
 The client provides an interactive menu to test each feature:
 
@@ -213,7 +213,7 @@ curl http://YOUR_IP:3000/withdraw-request
 curl http://YOUR_IP:3000/auth-challenge
 ```
 
-## 🐛 Debugging
+##  Debugging
 
 ### Server logs
 ```bash
@@ -230,7 +230,7 @@ tail -f ~/.lightning/testnet4/log
 lightning-cli --network=testnet4 getinfo
 ```
 
-## 📚 Resources
+## Resources
 
 - [LUD-02 spec](https://github.com/lnurl/luds/blob/luds/02.md)
 - [LUD-03 spec](https://github.com/lnurl/luds/blob/luds/03.md)
@@ -238,7 +238,7 @@ lightning-cli --network=testnet4 getinfo
 - [Core Lightning docs](https://docs.corelightning.org/)
 - [cln-rpc docs](https://docs.rs/cln-rpc/latest/cln_rpc/)
 
-## ✅ Project Status
+## Project Status
 
 ### Completed
 - [x] Bitcoin Core setup on testnet4
@@ -264,14 +264,14 @@ lightning-cli --network=testnet4 getinfo
 - [ ] Firewall setup on VPS
 - [ ] Testing with professor's node
 
-## 📋 Current Configuration
+## Current Configuration
 
 - **Node Pubkey**: `029249978ef61cf264d2cf57589c96780bdd86266fdc065d6b54c48d2c9ea3ad40`
 - **Network**: testnet4
 - **Server Port**: 3000
 - **Lightning Port**: 9735
 
-## 🎯 Project Information
+## Project Information
 
 This project implements three LNURL protocols:
 
@@ -281,8 +281,3 @@ This project implements three LNURL protocols:
 
 All three protocols are implemented and working. LUD-04 has been tested successfully. LUD-02 and LUD-03 require two different Lightning nodes to test properly (cannot connect/pay to yourself).
 
----
-
-**Ready for submission! 🎉**
-
-Good luck! ⚡🚀
